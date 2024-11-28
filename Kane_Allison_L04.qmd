@@ -1,0 +1,709 @@
+---
+title: "L04 Judging Models"
+subtitle: "Data Science 2 with R (STAT 301-2)"
+author: "Allison Kane"
+
+format:
+  html:
+    toc: true
+    toc-depth: 4
+    embed-resources: true
+    code-fold: show
+    link-external-newwindow: true
+    
+execute:
+  warning: false
+  
+from: markdown+emoji   
+---
+
+::: {.callout-important collapse="true"}
+## Load Package(s)
+
+Packages used in this lab include tidyverse, tidymodels, here, yardstick
+
+```{r}
+#| label: load packages
+
+library(tidyverse)
+library(tidymodels)
+library(here)
+library(yardstick)
+
+tidymodels_prefer()
+
+```
+:::
+
+::: {.callout-tip icon="false"}
+## Github Repo Link
+
+[Allison Repo Link](https://github.com/stat301-2-2024-winter/L04-judging-models-akane2460.git)
+:::
+
+## Overview
+
+The goals for this lab are to continue using the `recipes` package to preform feature engineering, use the `yardstick` package to assess and compare models, and to train binary classification models.
+
+## Exercises
+
+### Exercise 1
+
+For this exercise, we will be working with a data set from the UCI (University of California, Irvine) Machine Learning repository ([see website here](http://archive.ics.uci.edu/ml/datasets/Abalone)). The full data set consists of 4,177 observations of abalone in Tasmania. (Fun fact: [Tasmania](https://en.wikipedia.org/wiki/Tasmania "Tasmania") supplies about 25% of the yearly world abalone harvest.)
+
+The age of an abalone is typically determined by cutting the shell open and counting the number of rings with a microscope. The purpose of this data set is to determine whether abalone age (**number of rings + 1.5**) can be accurately predicted using other, easier-to-obtain information about the abalone.
+
+The full abalone data set is located in the `data/` subdirectory. Read it into *R* as a tibble. Take a moment to read through the codebook (`abalone_codebook.txt`) and familiarize yourself with the variable definitions.
+
+::: {.callout-note icon="false"}
+## Prediction goal
+
+Our goal is to predict abalone age, which is calculated as the number of rings plus 1.5. Notice there currently is no `age` variable in the data set.
+:::
+
+#### Task 1
+
+Add `age`, the target variable, to the data set. Describe the distribution of `age`.
+
+::: {.callout-tip icon="false"}
+## Solution
+
+![Age of abalone](results/age_distribution.png)
+
+Age of the abalone is centered at approximately 11 years, with a slight right skew. There are many outlying age values of the abalone. There is an age ranging from 2.5 to 30.5. It doesn't seem that there is a major need for a transformation to adjust age in this case, so it will remain in its major scale. 
+
+:::
+
+#### Task 2
+
+Split the abalone data into a training set and a testing set. Use stratified sampling. You should decide on appropriate percentages for splitting the data. This should be done in the `exercise_1/1_initial_setup.R` script, but remember to provide display code for graders.  
+
+::: {.callout-tip icon="false"}
+## Solution
+
+```{r}
+#| label: ex 01 task 2
+#| eval: false
+
+# set seed
+set.seed(3012)
+
+# split the data
+abalone_split <- abalone |> 
+  initial_split(prop = .8, strata = age)
+
+abalone_train <- abalone_split |> training()
+abalone_test <- abalone_split |>  testing()
+
+# write out datasets
+save(abalone_split, file = here("exercise_1/data_split/abalone_split.rda"))
+save(abalone_train, file = here("exercise_1/data_split/abalone_train.rda"))
+save(abalone_test, file = here("exercise_1/data_split/abalone_test.rda"))
+```
+
+
+:::
+
+#### Task 3
+
+Using the **training** data, create a recipe appropriate for fitting linear models (for example Ordinary Least Squares & Regularized/Penalized Regression). We want to predict the outcome variable, `age`, with all other predictor variables. Note that you should not include `rings` to predict `age`. Explain why you shouldn't use `rings` to predict `age`.
+
+::: {.callout-tip icon="false"}
+## Solution
+
+Rings should not be used to predict age because we already know how they are directly related (ring number + 1.5 = age). 
+
+:::
+
+Steps for the recipe:
+
+-  dummy code any categorical predictors
+-  create interactions between
+    -   `type` and `shucked_weight`,
+    -   `longest_shell` and `diameter`,
+    -   `shucked_weight` and `shell_weight`
+-  center all predictors, and
+-  scale all predictors.
+
+This recipe should be built in `exercise_1/2_recipes.R`, but remember to provide display code for graders.  
+
+::: {.callout-tip icon="false"}
+## Solution
+
+```{r}
+#| label: ex 01 task 03
+#| eval: false
+
+aba_recipe <- recipe(
+  age ~ type + shucked_weight + longest_shell + diameter + shell_weight,
+  data = abalone_train) |> 
+  step_dummy(type) |> 
+  step_interact(~ starts_with("type_"):shucked_weight) |> 
+  step_interact(~ longest_shell:diameter) |> 
+  step_interact(~ shucked_weight:shell_weight) |> 
+  step_center(all_predictors()) |> 
+  step_scale(all_predictors())
+  
+```
+
+:::
+
+#### Task 4
+
+Define/create a workflow called `lm_wflow` for training a linear regression model using the `"lm"` engine and the pre-processing recipe defined in the previous task.
+
+Basic steps to set up workflow:
+
+1.  set up an empty workflow,
+2.  add the model specification (provide in R script), and
+3.  add the recipe created in Task 3.
+
+After setting up the workflow, use `fit()` to train your workflow. Save these results. 
+
+This work should be completed in `exercise_1/3_fit_lm.R`, but remember to provide display code for graders.  
+
+::: {.callout-tip icon="false"}
+## Solution
+
+```{r}
+#| label: ex 01 task 04
+#| eval: false
+
+# model specifications ----
+lm_spec <- 
+  linear_reg() |> 
+  set_engine("lm") |> 
+  set_mode("regression") 
+
+# define workflows ----
+lm_wflow <-
+  workflow() |> 
+  add_model(lm_spec) |> 
+  add_recipe(aba_recipe)
+
+# fit workflows/models ----
+fit_lm <- fit(lm_wflow, abalone_train)
+
+# write out results (fitted/trained workflows) ----
+save(fit_lm, file = here("exercise_1/data_split/fit_lm.rda"))
+
+```
+
+
+:::
+
+#### Task 5
+
+Now you want to assess your model's performance on several metrics. To do this, use the `yardstick` package:
+
+1.  Create a metric set that includes *R^2^*, RMSE (root mean squared error), and MAE (mean absolute error).
+2.  Use `predict()` and `bind_cols()` to create a tibble of your model's predicted values for the testing data along with the actual observed `age`s (these are needed to assess your model's performance).
+3.  Finally, apply your metric set to the tibble, report the results, and provide an interpretation of each of the values --- MAE and RMSE are interpreted similarly while *R^2^* has a different interpretation.
+
+This work should be completed in `exercise_1/4_model_analysis.R`. Remember to provide grader with appropriate demonstration of work and output. 
+
+::: {.callout-tip icon="false"}
+## Solution
+
+```{r}
+#| label: ex 01 task 05 work
+#| eval: false
+
+# create metric set
+ames_metrics <- metric_set(rmse, rsq, mae)
+
+# predicted vs. test value tibble
+predicted_lm <- bind_cols(abalone_test, predict(fit_lm, abalone_test)) |> 
+  select(age, .pred)
+
+# apply metric set 
+ames_metrics_applied <- ames_metrics(predicted_lm, truth = age, estimate = .pred)
+```
+
+```{r}
+#| label: ex 01 task 05 output
+#| echo: false
+
+read_rds(here("results/aba_lm_metrics.rds"))
+
+```
+
+In this metric set, the lm model is assessed. The RSME value of 2.302 shows that typical predictions of an abalone's `age` in this model differ from the actual value by approximately 2.302 years. The MAE value of 1.602 indicates that the average absolute distance in typical predictions of an abalone's `age` from the actual value is approximately 1.602 in this model. Ideally, for these two metrics, smaller values indicate that the model is more accurate in its predictions. In the $R^2$ value, the value .541 indicates that approximately 54.1% of the variation in `age` can be explained by the lm model. A higher value of $R^2$ indicates greater explanatory power of a model (ranges from 0 to 1). This indicates that its explanatory power of our lm model is moderate based on the $R^2$ value.
+
+:::
+
+#### Task 6
+
+We've now completed a *basic* example of statistical/machine learning using ordinary linear regression. But what if ordinary linear regression isn't the best method to use? Maybe regularized/penalized regression (like lasso or ridge) or a tree-based method would work better. Let's try a few more models:
+
+::: {.callout-caution collapse="true" icon="false"}
+## Lasso Regression 
+
+Define, train, and assess a lasso model with penalty 0.03 starting with the same recipe used by the ordinary linear regression model.
+
+Use `exercise_1/3_fit_lasso.R` to appropriately define and train a workflow --- the model specification is provided.
+
+The model assessment should be completed in `exercise_1/4_model_analysis.R`. 
+:::
+
+::: {.callout-caution collapse="true" icon="false"}
+## Ridge Regression
+
+Define, train, and assess a ridge model with penalty 0.03 starting with the same recipe used by the ordinary linear regression model.
+
+Use `exercise_1/3_fit_ridge.R` to appropriately define and train a workflow --- the model specification is provided.
+
+The model assessment should be completed in `exercise_1/4_model_analysis.R`. 
+:::
+
+::: {.callout-caution collapse="true" icon="false"}
+## Random Forest
+
+Define, train, and assess a random forest model with the number of sampled variables to split on at each node set to 4 (`mtry = 4`) and the number or trees to grow set to 1,000 (`trees = 1000`).  
+
+While the we could use the recipe previously used for fitting linear models, it would be sub-optimal pre-processing for a tree-based model like random forest. 
+
+::: {.callout-note collapse="true" icon="false"}
+
+## Note on tree-based pre-processing/recipes
+
+Tree-based methods naturally search out interactions, meaning that we typically don't need to specify any interactions (of course, there are exceptions). Tree-based methods typically work better using one-hot encoding instead of traditional dummy coding; this also has to do with the fact that they are empirically driven models, not mechanistic.
+:::
+
+Let's create a different recipe for the random forest model. Similarly to the other recipe, we will predict `age` with all other predictor variables --- should not include `rings` to predict `age`.
+
+Steps for the recipe:
+
+-  one-hot encode any categorical predictors
+-  center all predictors, and
+-  scale all predictors.
+
+The recipe should be added to `exercsie_1/2_recipes.R`.
+
+Use `exercise_1/3_fit_rf.R` to appropriately define and train a workflow --- the model specification is provided.
+
+The model assessment should be completed in `exercise_1/4_model_analysis.R`. 
+
+:::
+
+No display code is required for this task because. Only need a confirmation that it has been completed. The output in the next task will verify that this has been done correctly. 
+
+::: {.callout-tip icon="false"}
+## Solution
+
+```{r}
+#| label: ex 01 task 06 output
+#| echo: false
+
+read_rds(here("results/aba_lasso_metrics.rds"))
+read_rds(here("results/aba_ridge_metrics.rds"))
+read_rds(here("results/aba_rf_metrics.rds"))
+
+```
+
+:::
+
+#### Task 7
+
+Provide the performance assessment metrics for each of the 4 models in one table. After considering this information, which model do you think is best? Why?
+
+::: {.callout-tip icon="false"}
+## Solution
+
+```{r}
+#| label: ex 01 task 07 output
+#| echo: false
+
+read_rds(here("results/aba_combined_metrics.rds"))
+
+```
+
+Given the outputs of these metrics, the model with the greatest explanatory power ($R^2$ value) is the lm model (with .54 value greater than all others). The model that has the smallest average absolute distance in predictions for an abalone's `age` is the rf model, with the smallest MAE value. THe model with the smallest RMSE value, showing the typical predictions of an abalone's `age` in this model differ from the actual value, is the lm model. Given that for 2/3 of these metrics, lm outperforms all other models, it seems that it is the best model of an abalone's `age`.
+
+:::
+
+### Exercise 2
+
+For this exercise, we will be working with part of a [Kaggle data set](https://www.kaggle.com/c/titanic/overview) that was the subject of a machine learning competition and is often used for practicing ML models.
+
+
+::: {.callout-note icon="false"}
+## Prediction goal
+
+The goal is classification; specifically, to predict which passengers would survive the [Titanic shipwreck](https://en.wikipedia.org/wiki/Titanic).
+:::
+
+#### Task 1
+
+Load the data from `data/titanic.csv` into *R* and familiarize yourself with the variables by reviewing the codebook (`data/titanic_codebook.csv`).
+
+Notice that `survived` and `pclass` should be changed to factors. When changing `survived` to a factor, you should reorder the factor so that `"Yes"` is the first level.
+
+::: {.callout-tip icon="false"}
+## Solution
+```{r}
+#| label: ex 02 task 01
+#| eval: false
+
+# load data----
+titanic <- read_csv(here("data/titanic.csv")) |> 
+  janitor::clean_names()
+
+titanic <- titanic |> 
+  mutate(
+    survived = factor(survived, levels(c("Yes", "No"))),
+    pclass = factor(pclass)
+  )
+```
+
+
+:::
+
+#### Task 2
+
+Using the full data set, explore/describe the distribution of the outcome variable `survived`.
+
+**Only do this for the target variable.**
+
+::: {.callout-tip icon="false"}
+## Solution
+
+![Survival of passengers on Titanic](results/survived_distribution.png)
+```{r}
+#| label: ex 02 task 02
+#| echo: false
+
+read_rds("results/proportions_survived.rds")
+```
+A majority of passengers on the Titanic did not survive. Approximately 38% of passengers on board did, while 62% did not.
+
+:::
+
+#### Task 3
+
+Split the data! Use stratified sampling. You should choose the proportions to split the data into. Verify that the training and testing data sets have the appropriate number of observations. Perform a skim of the training data and note any potential issues such as missingness.
+
+::: {.callout-tip icon="false"}
+## Solution
+
+```{r}
+#| label: ex 02 task 03
+#| eval: false
+
+# splitting data----
+set.seed(3012)
+
+# split the data
+titanic_split <- titanic |> 
+  initial_split(prop = .8, strata = age)
+
+titanic_train <- titanic_split |> training()
+titanic_test <- titanic_split |>  testing()
+
+train_data_skim <- titanic_train |> 
+skimr::skim_without_charts() |> 
+  filter(complete_rate < 1)
+
+```
+
+```{r}
+#| label: ex 02 task 03 part 2
+#| echo: false
+
+read_rds(here("results/titanic_train_data_skim.rds"))
+
+```
+
+There are three variables with missingness to varying degrees. `embarked` has a near 100% complete rate, with only 2 missing values. `age` has more substantial missigness, with a complete rate of about 80%. `cabin` has the most severe with a complete rate of only 23.2%. `age` and `cabin`s' missingness issues might be a significant problem for creating accurate models, as age is thought to be a major factor in why some survive ("Women and children first") and a passenger's cabin dictates how close to the top of the boat they were, indicating their chances of getting into a lifeboat earlier. 
+
+:::
+
+Why is it a good idea to use stratified sampling for this data?
+
+::: {.callout-tip icon="false"}
+## Solution
+
+Using stratified sampling is good for this data because it is critical to counteract potential biases and imbalances in the data. There might be imbalances in the data of who survived based on certain variables like `class` and `cabin`, so stratified sampling allows for a more equitable representation of passengers on board to train our model.
+
+:::
+
+#### Task 4
+
+Looking ahead, we plan to train two random forest models and a logistic regression model for this problem. We begin by setting up recipes for each of these approaches.
+
+::: {.callout-caution collapse="true" icon="false"}
+## Logistic Regression Recipe
+
+Using the training data, create and store a recipe setting `survived` as the outcome and using the following predictors: ticket class, sex, age, number of siblings or spouses aboard, number of parents or children aboard, and passenger fare.
+
+Recall that there were missing values for `age`. To deal with this, add an imputation step using `step_impute_linear()`. Next, use `step_dummy()` to dummy encode categorical predictors. Finally, include interactions between:
+
+-   Sex and passenger fare, and
+-   Age and passenger fare.
+
+:::
+
+::: {.callout-caution collapse="true" icon="false"}
+#### Tree-Based Recipe
+
+Using the training data, create and store a recipe setting `survived` as the outcome and using the following predictors: ticket class, sex, age, number of siblings or spouses aboard, number of parents or children aboard, and passenger fare.
+
+Recall that there were missing values for `age`. To deal with this, add an imputation step using `step_impute_linear()`. Next, use `step_dummy()` to one-hot encode categorical predictors.
+
+::: {.callout-note collapse="true" icon="false"}
+## Note on tree-based pre-processing/recipes
+
+Tree-based methods naturally search out interactions, meaning that we typically don't need to specify any interactions (of course, there are exceptions). Tree-based methods typically work better using one-hot encoding instead of traditional dummy coding; this also has to do with the fact that they are empirically driven models, not mechanistic.
+:::
+
+:::
+
+::: {.callout-tip icon="false"}
+## Solution
+
+```{r}
+#| label: ex 02 task 04
+#| eval: false
+
+# logistic regression
+titanic_logistic_regression_recipe <- recipe(
+  survived ~ pclass + age + sex + sib_sp + parch + fare,
+  data = titanic_train) |> 
+  step_impute_linear(age) |> 
+  step_dummy(all_nominal_predictors()) |> 
+  step_interact(~ fare:starts_with("sex")) |> 
+  step_interact(~ fare:starts_with("age")) 
+
+# tree based regression
+titanic_tree_based_recipe <- recipe(
+  survived ~ pclass + age + sex + sib_sp + parch + fare,
+  data = titanic_train) |> 
+  step_impute_linear(age) |> 
+  step_dummy(all_nominal())
+
+```
+
+
+:::
+
+
+#### Task 5
+
+Create a workflow for fitting a **logistic regression** model for classification using the `"glm"` engine. Add your specified model and the appropriate recipe.
+
+Now use `fit()` to train your workflow.
+
+::: {.callout-tip icon="false"}
+## Solution
+
+```{r}
+#| label: ex 02 task 05
+#| eval: false
+
+# model specifications ----
+log_reg_spec <- 
+  logistic_reg() |> 
+  set_engine("glm") |> 
+  set_mode("classification") 
+
+# define workflows ----
+log_reg_wflow <-
+  workflow() |> 
+  add_model(log_reg_spec) |> 
+  add_recipe(titanic_logistic_regression_recipe)
+
+# fit workflows/models ----
+fit_log_reg <- fit(log_reg_wflow, titanic_train)
+
+```
+
+
+:::
+
+#### Task 6
+
+**Repeat Task 5**, but this time specify a random forest model for classification using the `"ranger"` engine and the appropriate recipe. *Don't specify values for tuning parameters manually;* allow the function(s) to use the default values.
+
+Using `?rand_forest`, read the function documentation to find out what default values `ranger` uses for `mtry`, `trees`, and `min_n`. What are the defaults in this case?
+
+::: {.callout-tip icon="false"}
+## Solution
+
+```{r}
+#| label: ex 02 task 6
+#| eval: false
+
+random_forest_spec_task6 <-
+  rand_forest() |>
+  set_engine("ranger") |>
+  set_mode("classification")
+
+# define workflow
+random_forest_wflow <-
+  workflow() |>
+  add_model(random_forest_spec_task6) |>
+  add_recipe(titanic_tree_based_recipe)
+
+# fit workflows/models
+fit_rf_task6 <- fit(random_forest_wflow, data = titanic_train)
+
+```
+
+`mtry` means the number of predictors that should be randomly sampled per split and defaults to the square root of the number of predictor variables.
+`trees` means the number of trees created, defaulting to 500. 
+`min_n` means the minimum number of datapoints per node that are needed for the node to split again, defaulting to 1. 
+
+:::
+
+#### Task 7
+
+**Repeat Task 6**, but this time choose values that you think are reasonable for each of the three tuning parameters (`mtry`, `trees`, and `min_n`).
+
+::: {.callout-tip icon="false"}
+## Solution
+
+```{r}
+#| label: ex 02 task 7
+#| eval: false
+
+random_forest_spec_task7 <-
+  rand_forest(mtry = 2, trees = 1000, min_n = 2) |>
+  set_engine("ranger") |>
+  set_mode("classification")
+
+# define workflows
+random_forest_wflow_task7 <-
+  workflow() |>
+  add_model(random_forest_spec_task7) |>
+  add_recipe(titanic_tree_based_recipe)
+
+# fit workflows/models
+fit_rf_task7 <- fit(random_forest_wflow_task7, data = titanic_train)
+
+```
+
+:::
+
+#### Task 8
+
+Now you've trained three different models/workflows to the training data:
+
+1.  A logistic regression model
+2.  A random forest model with default tuning parameters
+3.  A random forest model with custom tuning parameters
+
+Use `predict()` and `bind_cols()` to generate predictions using each of these 3 models and your testing data. Then use the **accuracy** metric to assess the performance of each of the three models.
+
+Which model makes the best predictions? How do you know?
+
+::: {.callout-tip icon="false"}
+## Solution
+
+```{r}
+#| label: ex 02 task 8
+#| eval: false
+
+# predicted vs. test value tibble
+predicted_log_reg <- bind_cols(titanic_test, predict(fit_log_reg, titanic_test)) |> 
+  select(.pred_class, survived)
+
+predicted_rf_task6 <- bind_cols(titanic_test, predict(fit_rf_task6, titanic_test)) |> 
+  select(.pred_class, survived)
+
+predicted_rf_task7 <- bind_cols(titanic_test, predict(fit_rf_task6, titanic_test)) |> 
+  select(.pred_class, survived)
+
+# accuracy
+accuracy_log_reg <- accuracy(predicted_log_reg, truth = survived, estimate = .pred_class)
+accuracy_fr_task6 <- accuracy(predicted_rf_task6, truth = survived, estimate = .pred_class)
+accuracy_fr_task7 <- accuracy(predicted_rf_task7, truth = survived, estimate = .pred_class)
+
+```
+
+```{r}
+#| label: ex 02 task 8 part 2
+#| echo: false
+
+read_rds(here("results/titanic_accuracy_combined.rds"))
+
+```
+
+The random forest model in Task 7 is the most accurate. This is because it predicts the survival of passengers accurately approximately 82.8% of the time relative to task 6's 82.2% and logistical model 80.6%.
+
+:::
+
+#### Task 9
+
+For the model identified in Task 8, create a confusion matrix using the testing data.
+
+Explain what this is in your own words. Interpret the numbers in each category.
+
+::: {.callout-tip icon="false"}
+## Solution
+
+```{r}
+#| label: ex 02 task 9
+#| echo: false
+
+read_rds(here("results/titanic_conf_matrix.rds"))
+```
+In this matrix, it is seen that the model identified in Task 8 correctly predicted 43 passengers to survive (true positives) and 106 passengers to not survive (true negatives). The model in Task 8 incorrectly predicted 9 passengers to survive (false positive) and 23 passengers to not survive (false negative).
+
+:::
+
+#### Task 10
+
+For the model identified in Task 8, use `predict()` and `bind_cols()` to create a tibble of predicted class probabilities and actual true outcomes. Note that this will require using the `type` argument of `predict()`. You should be using the testing data.
+
+Explain what these class probabilities are in your own words.
+
+::: {.callout-tip icon="false"}
+## Solution
+
+```{r}
+#| label: ex 02 task 10
+#| echo: false
+
+read_rds(here("results/class_probabilities.rds")) |> 
+  head()
+
+```
+
+In this output, the column .pred_Yes indicates the chances that that selected passenger will survive. The column .pred_No indicates the chances that that selected passenger will not survive. If the .pred_No column is greater than the .pred_Yes, this indicates that the model will be predicting that the passenger does not survive (and vice versa). This provides insight into the model's "decision-making" process.
+
+:::
+
+#### Task 11
+
+For the model identified in Task 8, use `roc_curve()` and `autoplot()` to create a receiver operating characteristic (ROC) curve.
+
+Use `roc_auc()` to calculate the area under the ROC curve.
+
+::: {.callout-tip icon="false"}
+## Solution
+
+![ROC CURVE](results/roc_curve_rf_plot.png)
+
+```{r}
+#| label: ex 02 task 11
+#| echo: false
+
+read_rds("results/roc_auc_curve_rf.rds")
+
+```
+
+
+:::
+
+#### Task 12
+
+The area under the ROC curve is a measure of how well the model predictions are able to separate the data being tested into classes/groups. [(See here for a more detailed explanation)](http://gim.unmc.edu/dxtests/roc3.htm).
+
+Interpret the AUC for your model.
+
+::: {.callout-tip icon="false"}
+## Solution
+
+Given this AUC value of .857, this model is predicting better than random chance (which would be approximately .5). Given that it is relatively close to AUC = 1 (perfect discrimination between surviving classes), it has moderately strong ability in discerning survival of any given passenger. 
+
+:::
